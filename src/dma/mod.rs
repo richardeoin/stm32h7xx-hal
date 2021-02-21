@@ -773,7 +773,7 @@ where
 // -------- MDMA --------
 
 impl<STREAM, CONFIG, PERIPHERAL, DIR, BUF, BUF_WORD>
-    Transfer<STREAM, PERIPHERAL, DIR, BUF>
+    Transfer<STREAM, PERIPHERAL, DIR, BUF, MasterTransfer>
 where
     STREAM: MasterStream + Stream<Config = CONFIG>,
     DIR: Direction,
@@ -971,6 +971,7 @@ where
             stream,
             peripheral,
             _direction: PhantomData,
+            _transfer_type: PhantomData,
             buf: [Some(memory), second_buf],
             transfer_length: 0, // Not used by master dma
         };
