@@ -83,29 +83,40 @@
 #[cfg(any(feature = "rm0433", feature = "rm0399"))]
 mod qspi;
 #[cfg(any(feature = "rm0433", feature = "rm0399"))]
-pub use common::{
-    Bank, Xspi as Qspi, XspiError as QspiError, XspiMode as QspiMode,
-    XspiWord as QspiWord,
+pub use {
+    common::{
+        Bank, Xspi as Qspi, XspiError as QspiError, XspiInst as QspiInst,
+        XspiMode as QspiMode, XspiWord as QspiWord,
+    },
+    qspi::QspiExt as XspiExt,
 };
-#[cfg(any(feature = "rm0433", feature = "rm0399"))]
-pub use qspi::QspiExt as XspiExt;
 
 // Octospi
 #[cfg(any(feature = "rm0455", feature = "rm0468"))]
 mod octospi;
+
 #[cfg(any(feature = "rm0455", feature = "rm0468"))]
-pub use common::{
-    Xspi as Octospi, XspiError as OctospiError, XspiMode as OctospiMode,
-    XspiWord as OctospiWord,
+pub use {
+    common::{
+        Xspi as Octospi, XspiError as OctospiError, XspiInst as OctospiInst,
+        XspiMode as OctospiMode, XspiWord as OctospiWord,
+    },
+    octospi::OctospiExt as XspiExt,
 };
-#[cfg(any(feature = "rm0455", feature = "rm0468"))]
-pub use octospi::OctospiExt as XspiExt;
 
 // Both
 pub use common::{Config, Event, SamplingEdge};
 
 /// This modulate contains functionality common to both Quad and Octo SPI
 mod common {
+    /// Instruction word used by the XSPI interface
+    #[cfg(any(feature = "rm0455", feature = "rm0468"))]
+    pub type XspiInst = XspiWord;
+
+    /// Instruction word used by the XSPI interface
+    #[cfg(any(feature = "rm0433", feature = "rm0399"))]
+    pub type XspiInst = Option<u8>;
+
     use crate::{
         rcc::{rec, CoreClocks},
         stm32,
@@ -153,7 +164,7 @@ mod common {
         WordTooLarge,
     }
 
-    /// Instruction, Address or Alternate Byte word used by the XSPI interface
+    /// Address or Alternate Byte word used by the XSPI interface
     #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum XspiWord {
         None,
@@ -179,15 +190,6 @@ mod common {
                 XspiWord::U8(x) => x as u32,
                 XspiWord::U16(x) => x as u32,
                 XspiWord::U24(x) | XspiWord::U32(x) => x,
-            }
-        }
-        #[inline(always)]
-        #[cfg(any(feature = "rm0433", feature = "rm0399"))]
-        fn bits_u8(self) -> Result<u8, XspiError> {
-            match self {
-                XspiWord::None => Ok(0),
-                XspiWord::U8(x) => Ok(x),
-                _ => Err(XspiError::WordTooLarge),
             }
         }
     }
@@ -481,12 +483,16 @@ mod common {
             /// * `dummy_cycles` - The number of dummy cycles between the alternate-bytes
             ///                    and the data phase.
             /// * `data` - true is there is a data phase, false for no data phase.
-            fn setup_extended(&mut self, instruction: XspiWord, address: XspiWord,
+            fn setup_extended(&mut self, instruction: XspiInst, address: XspiWord,
                               alternate_bytes: XspiWord, dummy_cycles: u8, data: bool, read: bool) {
 
                 let fmode = if read { 0b01 } else { 0b00 };
                 let mode = self.mode.reg_value();
+                #[cfg(any(feature = "rm0433", feature = "rm0399"))]
+                let imode = if instruction.is_some() { mode } else { 0 };
+                #[cfg(any(feature = "rm0455", feature = "rm0468"))]
                 let imode = if instruction != XspiWord::None { mode } else { 0 };
+
                 let admode = if address != XspiWord::None { mode } else { 0 };
                 let abmode = if alternate_bytes != XspiWord::None { mode } else { 0 };
                 let dmode = if data { mode } else { 0 };
@@ -496,7 +502,7 @@ mod common {
                 self.rb.ccr.modify(|_, w| unsafe {
                     #[cfg(any(feature = "rm0433", feature = "rm0399"))]
                     let w = {
-                        let ir = instruction.bits_u8().unwrap();
+                        let ir = instruction.unwrap_or(0);
                         w.dcyc().bits(dummy_cycles).instruction().bits(ir).fmode().bits(fmode)
                     };
 
@@ -635,7 +641,7 @@ mod common {
             /// Panics if the length of `data` is greater than the size of the XSPI
             /// hardware FIFO (32 bytes).
             pub fn write_extended(&mut self,
-                                  instruction: XspiWord,
+                                  instruction: XspiInst,
                                   address: XspiWord,
                                   alternate_bytes: XspiWord,
                                   data: &[u8]) -> Result<(), XspiError> {
@@ -775,7 +781,7 @@ mod common {
             /// XSPI hardware FIFO (32 bytes). Panics if the length of `dest` is
             /// zero. Panics if the number of dummy cycles is not 0 - 31 inclusive.
             pub fn read_extended(&mut self,
-                                 instruction: XspiWord,
+                                 instruction: XspiInst,
                                  address: XspiWord,
                                  alternate_bytes: XspiWord,
                                  dummy_cycles: u8,
